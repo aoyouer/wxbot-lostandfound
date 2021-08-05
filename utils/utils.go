@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+var CitySlice = []string{"杭州", "上海", "成都", "广州", "北京"}
+
 func CheckError(err error, where string) {
 	if err != nil {
 		panic("[" + where + "]" + err.Error())
