@@ -50,11 +50,14 @@ func replyTextWithCtx(ctx conversation.ConversationContext, text string) (err er
 	_, err = ctx.W.Write(encryptMsg)
 	return
 }
+// 主动发送消息
+func sendTextWithCtx(ctx conversation.ConversationContext,text string) error{
+	return sendTextToUser(text,ctx.ReceiveContent.FromUsername)
+}
 
 //主动发送消息
 
 func sendTextToUser(text string, userName string) error {
-	log.Println("给用户主动发送消息")
 	initiativeMsgResponse := &conversation.InitiativeMsgResponse{}
 	initiativeTextMsg := conversation.InitiativeTextMsgPool.Get().(*conversation.InitiativeTextMsg)
 	initiativeTextMsg.Agentid = botConfig.AgentId

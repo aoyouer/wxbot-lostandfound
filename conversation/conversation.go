@@ -7,11 +7,11 @@ import (
 )
 
 type Conversation struct {
-	ConversationId uint64
+	ConversationId int64
 	UserName       string
 	LastActive     time.Time
-	Stage          int    // 表单阶段
-	Type           uint   //捡到东西或者是丢失东西   丢失物品-1 捡到东西-2
+	Stage          int64    // 表单阶段
+	Type           int64   //捡到东西或者是丢失东西   丢失物品-1 捡到东西-2
 	Operation      string // 采取的操作 如添加记录或者查看列表
 	Form           Form
 	Status         string

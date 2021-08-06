@@ -37,6 +37,8 @@ func startConversation(ReceiveContent *conversation.MsgContent, imgContent *conv
 		Nonce:          nonce,
 		Conversation:   conversationMap[ReceiveContent.FromUsername],
 	}
+	// 收到消息后马上进行回复,避免微信服务器多次推送,之后改用异步方法向企业微信发送消息
+	replyTextWithCtx(ctx, "")
 
 	if c, exist := conversationMap[ReceiveContent.FromUsername]; exist {
 		// 后续会话
@@ -77,7 +79,7 @@ func startConversation(ReceiveContent *conversation.MsgContent, imgContent *conv
 
 func initConversation(ctx conversation.ConversationContext) (err error) {
 	// 还未记录map
-	err = replyTextWithCtx(ctx, initPrompt)
+	err = sendTextWithCtx(ctx, initPrompt)
 	// 保存当前会话
 	if err == nil {
 		conversationMap[ctx.ReceiveContent.FromUsername] = &conversation.Conversation{
@@ -102,17 +104,17 @@ func stage0Conversation(ctx conversation.ConversationContext) (err error) {
 		ctx.Conversation.Stage = 1
 		ctx.Conversation.Type = 1
 		// 虽然可以直接调用 stage1,但是为了避免过多层的嵌套,还是只进行回复
-		err = replyTextWithCtx(ctx, askLostOperationPrompt)
+		err = sendTextWithCtx(ctx, askLostOperationPrompt)
 	case "2", "我捡到了物品", "捡到物品":
 		ctx.Conversation.Stage = 1
 		ctx.Conversation.Type = 2
-		err = replyTextWithCtx(ctx, askFoundOperationPrompt)
+		err = sendTextWithCtx(ctx, askFoundOperationPrompt)
 	case "3", "我是管理员":
 		// TODO 允许企业中指定身份的人进行一些管理操作
 		ctx.Conversation.Type = 3
 	default:
 		// 无效输入
-		err = replyTextWithCtx(ctx, generalInvalidPrompt)
+		err = sendTextWithCtx(ctx, generalInvalidPrompt)
 	}
 	return
 }
@@ -124,16 +126,16 @@ func stage1Conversation(ctx conversation.ConversationContext) (err error) {
 		ctx.Conversation.Operation = "add"
 		if ctx.Conversation.Type == 1 {
 			ctx.Conversation.Stage = 2
-			err = replyTextWithCtx(ctx, askLostPlacePrompt)
+			err = sendTextWithCtx(ctx, askLostPlacePrompt)
 		} else {
 			ctx.Conversation.Stage = 2
-			err = replyTextWithCtx(ctx, askFoundPlacePrompt)
+			err = sendTextWithCtx(ctx, askFoundPlacePrompt)
 		}
 	case "2", "查看捡到的物品列表", "查看失物记录列表":
 		ctx.Conversation.Operation = "list"
 		// TODO 展示已经记录的列表
 	default:
-		err = replyTextWithCtx(ctx, generalInvalidPrompt)
+		err = sendTextWithCtx(ctx, generalInvalidPrompt)
 	}
 	return
 }
@@ -144,12 +146,12 @@ func stage2AddConversation(ctx conversation.ConversationContext) (err error) {
 	switch ctx.Conversation.Status {
 	case "":
 		if !utils.IfWordInSlice(content, utils.CitySlice) {
-			err = replyTextWithCtx(ctx, cityInvalidPrompt)
+			err = sendTextWithCtx(ctx, cityInvalidPrompt)
 		} else {
 			ctx.Conversation.Status = "waitconfirm"
 			ctx.Conversation.Form.City = content
 			// 询问,要求确认城市名称无误
-			err = replyTextWithCtx(ctx, fmt.Sprintf("您所在的城市是:%s\n1.yes\n2.no", content))
+			err = sendTextWithCtx(ctx, fmt.Sprintf("您所在的城市是:%s\n1.yes\n2.no", content))
 		}
 	case "waitconfirm":
 		// 要求进行确认
@@ -163,15 +165,15 @@ func stage2AddConversation(ctx conversation.ConversationContext) (err error) {
 				ctx.Conversation.Stage = 3
 			}
 			if ctx.Conversation.Type == 1 {
-				err = replyTextWithCtx(ctx, askLostItemPrompt)
+				err = sendTextWithCtx(ctx, askLostItemPrompt)
 			} else {
-				err = replyTextWithCtx(ctx, askFoundItemPrompt)
+				err = sendTextWithCtx(ctx, askFoundItemPrompt)
 			}
 		case "2", "no":
 			fallthrough
 		default:
 			// 重新进行输入
-			err = replyTextWithCtx(ctx, "请重新输入城市名")
+			err = sendTextWithCtx(ctx, "请重新输入城市名")
 		}
 	}
 
@@ -184,7 +186,7 @@ func stage3ItemConversation(ctx conversation.ConversationContext) (err error) {
 	switch ctx.Conversation.Status {
 	case "":
 		ctx.Conversation.Form.ItemName = content
-		err = replyTextWithCtx(ctx, fmt.Sprintf("物品名称为:%s\n1.yes\n2.no", content))
+		err = sendTextWithCtx(ctx, fmt.Sprintf("物品名称为:%s\n1.yes\n2.no", content))
 		ctx.Conversation.Status = "waitconfirm"
 	case "waitconfirm":
 		ctx.Conversation.Status = ""
@@ -197,14 +199,14 @@ func stage3ItemConversation(ctx conversation.ConversationContext) (err error) {
 				ctx.Conversation.Stage = 4
 			}
 			if ctx.Conversation.Type == 1 {
-				err = replyTextWithCtx(ctx, askLostDescriptionPrompt)
+				err = sendTextWithCtx(ctx, askLostDescriptionPrompt)
 			} else {
-				err = replyTextWithCtx(ctx, askPickDescriptionPrompt)
+				err = sendTextWithCtx(ctx, askPickDescriptionPrompt)
 			}
 		case "2", "no":
 			fallthrough
 		default:
-			err = replyTextWithCtx(ctx, "请重新输入物品名称")
+			err = sendTextWithCtx(ctx, "请重新输入物品名称")
 		}
 	}
 	// 根据之前的输入生成标签
@@ -218,7 +220,7 @@ func stage4DescriptionConversation(ctx conversation.ConversationContext) (err er
 	case "":
 		ctx.Conversation.Status = "waitconfirm"
 		ctx.Conversation.Form.Description = content
-		err = replyTextWithCtx(ctx, fmt.Sprintf("您的描述是:\n%s\n1.yes\n2.no", content))
+		err = sendTextWithCtx(ctx, fmt.Sprintf("您的描述是:\n%s\n1.yes\n2.no", content))
 	case "waitconfirm":
 		ctx.Conversation.Status = ""
 		switch content {
@@ -236,11 +238,11 @@ func stage4DescriptionConversation(ctx conversation.ConversationContext) (err er
 			tags := GenerateTags(allTextBuilder.String())
 			log.Println("物品TAGS:", tags)
 			ctx.Conversation.Form.ItemTags = tags
-			err = replyTextWithCtx(ctx, askImgPrompt)
+			err = sendTextWithCtx(ctx, askImgPrompt)
 		case "2", "no":
 			fallthrough
 		default:
-			err = replyTextWithCtx(ctx, "请重新输入描述")
+			err = sendTextWithCtx(ctx, "请重新输入描述")
 		}
 	}
 	return
@@ -249,7 +251,7 @@ func stage4DescriptionConversation(ctx conversation.ConversationContext) (err er
 // 阶段5 添加图片 需要确认
 func stage5ImgConversation(ctx conversation.ConversationContext) (err error) {
 	if ctx.Conversation.Stage != 5 {
-		err = replyTextWithCtx(ctx, "当前会话阶段无法处理图片")
+		err = sendTextWithCtx(ctx, "当前会话阶段无法处理图片")
 	} else {
 		switch ctx.Conversation.Status {
 		case "":
@@ -258,11 +260,11 @@ func stage5ImgConversation(ctx conversation.ConversationContext) (err error) {
 				log.Println("读取到图片消息", ctx.ImgContent)
 				ctx.Conversation.Form.ItemImg = imgContent.PicUrl
 				ctx.ImgContent = nil
-				err = replyTextWithCtx(ctx, "确认是这张图片吗?\n1.yes\n2.no")
+				err = sendTextWithCtx(ctx, "确认是这张图片吗?\n1.yes\n2.no")
 			} else {
 				// 没有图片需要上传的情况
 				ctx.Conversation.Form.ItemImg = ""
-				err = replyTextWithCtx(ctx, "确认没有图片需要上传吗?\n1.yes\n2.no")
+				err = sendTextWithCtx(ctx, "确认没有图片需要上传吗?\n1.yes\n2.no")
 			}
 		case "waitconfirm":
 			ctx.Conversation.Status = ""
@@ -273,11 +275,11 @@ func stage5ImgConversation(ctx conversation.ConversationContext) (err error) {
 				if picUrl != "" {
 					// 下载完成后的消息采取主动推送，否则的超过5秒连接会被断开，无法回复
 					log.Println("开始下载图片")
-					err = replyTextWithCtx(ctx,"开始下载图片")
 					ctx.Conversation.Form.ItemImgName = utils.DownloadFile(picUrl)
 					log.Println("图片已下载")
+					err = sendTextWithCtx(ctx, "图片已下载")
 				} else {
-					err = replyTextWithCtx(ctx,"选择不上传图片")
+					err = sendTextWithCtx(ctx, "选择不上传图片")
 				}
 				ctx.Conversation.Stage = 6
 				err = askForConfirm(ctx)
@@ -285,7 +287,7 @@ func stage5ImgConversation(ctx conversation.ConversationContext) (err error) {
 				fallthrough
 			default:
 				// 另外删除本地的图片
-				err = replyTextWithCtx(ctx, "请重新决定吧")
+				err = sendTextWithCtx(ctx, "请重新决定吧")
 			}
 		}
 	}
@@ -293,57 +295,59 @@ func stage5ImgConversation(ctx conversation.ConversationContext) (err error) {
 }
 
 // 提交数据库前的确认 stage6
-// TODO 存在BUG 未调用
 func askForConfirm(ctx conversation.ConversationContext) (err error) {
 	switch ctx.Conversation.Status {
 	case "":
+		log.Println("向用户展示确认信息")
 		if !ctx.Conversation.Edited {
 			// 主动发送消息，显示当前填的所有项目
 			ctx.Conversation.Status = "waitconfirm"
 			msg := fmt.Sprintf("在提交前进行确认:\n城市:%s\n物品:%s\n描述:%s\n标签:%s\n1.yes\n2.no", ctx.Conversation.Form.City,
 				ctx.Conversation.Form.ItemName, ctx.Conversation.Form.Description, strings.Join(ctx.Conversation.Form.ItemTags, ","))
 			//err = sendTextToUser(msg, ctx.ReceiveContent.FromUsername)
-			err = sendTextToUser(msg, ctx.ReceiveContent.FromUsername)
+			err = sendTextWithCtx(ctx, msg)
 		} else {
 			// 选择切换stage处理
 			switch ctx.ReceiveContent.Content {
 			case "1":
 				ctx.Conversation.Stage = 1
-				err = replyTextWithCtx(ctx, "请重新选择要进行的操作\n1.添加记录\n2.列出记录")
+				err = sendTextWithCtx(ctx, "请重新选择要进行的操作\n1.添加记录\n2.列出记录")
 			case "2":
 				ctx.Conversation.Stage = 2
-				err = replyTextWithCtx(ctx, "请重新输入您所在的城市")
+				err = sendTextWithCtx(ctx, "请重新输入您所在的城市")
 			case "3":
 				ctx.Conversation.Stage = 3
-				err = replyTextWithCtx(ctx, "请重新输入物品的名称")
+				err = sendTextWithCtx(ctx, "请重新输入物品的名称")
 			case "4":
 				ctx.Conversation.Stage = 4
-				err = replyTextWithCtx(ctx, "请重新输入详细描述")
+				err = sendTextWithCtx(ctx, "请重新输入详细描述")
 			case "5":
 				ctx.Conversation.Stage = 5
-				err = replyTextWithCtx(ctx, "请重新上传图片(输入文字则不上传图片)")
+				err = sendTextWithCtx(ctx, "请重新上传图片(输入文字则不上传图片)")
 			case "6":
 				ctx.Conversation.Edited = false
 				ctx.Conversation.Stage = 6
-				err = replyTextWithCtx(ctx, "取消选择，输入任意文本继续操作")
+				err = sendTextWithCtx(ctx, "取消选择，输入任意文本继续操作")
 			case "7":
-				err = replyTextWithCtx(ctx, "已取消该次会话")
+				err = sendTextWithCtx(ctx, "已取消该次会话")
 				delete(conversationMap, ctx.ReceiveContent.FromUsername)
 			}
 		}
 	case "waitconfirm":
+		log.Println("等待用户输入确认信息")
+
 		ctx.Conversation.Status = ""
 		switch ctx.ReceiveContent.Content {
 		case "1", "yes":
 			// 提交至数据库
 			err = dao.AddRecord(ctx)
-			err = replyTextWithCtx(ctx, "已添加记录")
+			err = sendTextWithCtx(ctx, "已添加记录")
 		case "2", "no":
 			fallthrough
 		default:
 			// 要求选择需要修改哪一阶段
 			ctx.Conversation.Edited = true
-			err = replyTextWithCtx(ctx, "请输入您想要修改哪一阶段\n1.操作选择(添加记录或者是列出已有记录)\n2.城市修改\n3.物品名称修改\n4.修改描述\n5.重新上传图片\n6.取消\n7.退出会话")
+			err = sendTextWithCtx(ctx, "请输入您想要修改哪一阶段\n1.操作选择(添加记录或者是列出已有记录)\n2.城市修改\n3.物品名称修改\n4.修改描述\n5.重新上传图片\n6.取消\n7.退出会话")
 		}
 	}
 	return

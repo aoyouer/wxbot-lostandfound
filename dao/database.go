@@ -2,6 +2,7 @@ package dao
 
 import (
 	"errors"
+	"fmt"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"log"
@@ -47,7 +48,6 @@ func AddRecord(ctx conversation.ConversationContext) (err error) {
 	// 读取出标签进行储存
 	itemRecord := itemRecordPool.Get().(*ItemRecord)
 	defer itemRecordPool.Put(itemRecord)
-
 	itemRecord.User = ctx.ReceiveContent.FromUsername
 	itemRecord.ItemName = ctx.Conversation.Form.ItemName
 	itemRecord.Type = ctx.Conversation.Type
@@ -57,16 +57,20 @@ func AddRecord(ctx conversation.ConversationContext) (err error) {
 	itemRecord.ImgName = ctx.Conversation.Form.ItemImgName
 	// 记录TAG关系
 	itemRecord.Tags = strings.Join(ctx.Conversation.Form.ItemTags, ",")
-	db.Create(itemRecord)
+	db.Omit("Id").Create(itemRecord)
 	// 解析所有tag
+	// BUG sync.Pool和gorm共用出现异常
 	for _, tagName := range ctx.Conversation.Form.ItemTags {
 		tag := tagPool.Get().(*Tag)
 		tag.TagName = tagName
+		//tag := &Tag{
+		//	TagName: tagName,
+		//}
 		// 添加标签，如果存在就改为获取
 		err = db.First(tag).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			// 新增标签
-			db.Create(tag)
+			db.Omit("Id").Create(tag)
 		} else if err == nil {
 			// 已有标签
 		} else {
@@ -74,12 +78,20 @@ func AddRecord(ctx conversation.ConversationContext) (err error) {
 			return
 		}
 		// 添加 物品——标签关联关系
-		tagItemRecord := tagItemPool.Get().(*TagItem)
-		tagItemRecord.ItemId = itemRecord.ItemId
-		tagItemRecord.TagId = tag.TagId
-		tagItemRecord.Type = ctx.Conversation.Type
-		db.Create(tagItemRecord)
+		//tagItemRecord := tagItemPool.Get().(*TagItem)
+		tagItemRecord := &TagItem{
+			TagId:  tag.Id,
+			ItemId: itemRecord.Id,
+			Type:   ctx.Conversation.Type,
+		}
+		//tagItemRecord.ItemId = itemRecord.Id
+		//tagItemRecord.TagId = tag.Id
+		//tagItemRecord.Type = ctx.Conversation.Type
+		db.Omit("Id").Create(tagItemRecord)
+		tagItemRecord.Id = 0
 		tagItemPool.Put(tagItemRecord)
+		// 必须要手动清空 Pool 没有做任何“清空”的处理
+		tag.Id = 0
 		tagPool.Put(tag)
 	}
 	return
