@@ -33,39 +33,26 @@ type Conversation struct {
 	UserName       string
 	LastActive     time.Time
 	Stage          int    // 表单阶段
-	Type           int    //捡到东西或者是丢失东西   丢失物品-1 捡到东西-2
+	Type           uint   //捡到东西或者是丢失东西   丢失物品-1 捡到东西-2
 	Operation      string // 采取的操作 如添加记录或者查看列表
-	PickForm       PickForm
-	LoseForm       LoseForm
+	Form           Form
 	Status         string
 }
 
-// 捡到东西的表单
-type PickForm struct {
+type Form struct {
 	Who         string
 	City        string   // 城市
-	Location    string   // 详细地点
 	ItemName    string   // 物品名词
 	ItemTags    []string // 标签，用于查找
 	ItemImg     string   // 物品图片链接
-	Description string   // 完整描述
-}
-
-// 遗失物品的表单
-type LoseForm struct {
-	Who         string
-	City        string   // 城市
-	Location    string   // 详细地点
-	ItemName    string   // 物品名词
-	ItemTags    []string // 标签，用于查找
-	ItemImg     string   // 物品图片链接
-	Description string   // 完整描述
+	ItemImgName string
+	Description string // 完整描述
 }
 
 type ConversationContext struct {
-	receiveContent *MsgContent
-	imgContent     *ImgContent
-	conversation   *Conversation
+	ReceiveContent *MsgContent
+	ImgContent     *ImgContent
+	Conversation   *Conversation
 	w              http.ResponseWriter
 	timestamp      string
 	nonce          string
@@ -74,9 +61,9 @@ type ConversationContext struct {
 // 回复消息的方法绑定在了对话上下文上
 func (c ConversationContext) replyText(text string) (err error) {
 	replyTextMsg := replyTextMsgPool.Get().(*ReplyTextMsg)
-	replyTextMsg.ToUsername = c.receiveContent.FromUsername
-	replyTextMsg.FromUsername = c.receiveContent.ToUsername
-	replyTextMsg.CreateTime = c.receiveContent.CreateTime
+	replyTextMsg.ToUsername = c.ReceiveContent.FromUsername
+	replyTextMsg.FromUsername = c.ReceiveContent.ToUsername
+	replyTextMsg.CreateTime = c.ReceiveContent.CreateTime
 	replyTextMsg.MsgType = "text"
 	replyTextMsg.Content = text
 	replyMsg, _ := xml.Marshal(replyTextMsg)
@@ -91,17 +78,17 @@ func (c ConversationContext) replyText(text string) (err error) {
 }
 
 // 开始会话
-func startConversation(receiveContent *MsgContent, imgContent *ImgContent, w http.ResponseWriter, timestamp string, nonce string) (err error) {
+func startConversation(ReceiveContent *MsgContent, imgContent *ImgContent, w http.ResponseWriter, timestamp string, nonce string) (err error) {
 	ctx := ConversationContext{
-		receiveContent: receiveContent,
-		imgContent:     imgContent,
+		ReceiveContent: ReceiveContent,
+		ImgContent:     imgContent,
 		w:              w,
 		timestamp:      timestamp,
 		nonce:          nonce,
-		conversation:   conversationMap[receiveContent.FromUsername],
+		Conversation:   conversationMap[ReceiveContent.FromUsername],
 	}
 
-	if conversation, exist := conversationMap[receiveContent.FromUsername]; exist {
+	if conversation, exist := conversationMap[ReceiveContent.FromUsername]; exist {
 		// 后续会话
 		conversation.LastActive = time.Now()
 		switch conversation.Stage {
@@ -140,8 +127,8 @@ func initConversation(ctx ConversationContext) (err error) {
 	err = ctx.replyText(initPrompt)
 	// 保存当前会话
 	if err == nil {
-		conversationMap[ctx.receiveContent.FromUsername] = &Conversation{
-			UserName:   ctx.receiveContent.FromUsername,
+		conversationMap[ctx.ReceiveContent.FromUsername] = &Conversation{
+			UserName:   ctx.ReceiveContent.FromUsername,
 			LastActive: time.Now(),
 			Stage:      0,
 		}
@@ -157,9 +144,9 @@ func switchStage(ctx ConversationContext, targetStage int) (err error) {
 // 阶段0 设置类型
 // 当前不使用阶段嵌套,避免过多层的嵌套调用
 func stage0Conversation(ctx ConversationContext) (err error) {
-	conversation := conversationMap[ctx.receiveContent.FromUsername]
+	conversation := conversationMap[ctx.ReceiveContent.FromUsername]
 	conversation.LastActive = time.Now()
-	switch ctx.receiveContent.Content {
+	switch ctx.ReceiveContent.Content {
 	case "1", "我丢失了物品", "丢失物品":
 		conversation.Stage = 1
 		conversation.Type = 1
@@ -181,9 +168,9 @@ func stage0Conversation(ctx ConversationContext) (err error) {
 
 // 阶段1 设置操作 添加或者是查看
 func stage1Conversation(ctx ConversationContext) (err error) {
-	conversation := conversationMap[ctx.receiveContent.FromUsername]
+	conversation := conversationMap[ctx.ReceiveContent.FromUsername]
 	conversation.LastActive = time.Now()
-	switch ctx.receiveContent.Content {
+	switch ctx.ReceiveContent.Content {
 	case "1", "添加丢失物品的记录", "添加捡到物品的记录":
 		conversation.Operation = "add"
 		if conversation.Type == 1 {
@@ -205,19 +192,15 @@ func stage1Conversation(ctx ConversationContext) (err error) {
 // 阶段2 添加地点 需要确认
 func stage2AddConversation(ctx ConversationContext) (err error) {
 	// TODO 对城市进行检查
-	conversation := conversationMap[ctx.receiveContent.FromUsername]
-	content := ctx.receiveContent.Content
-	switch ctx.conversation.Status {
+	conversation := conversationMap[ctx.ReceiveContent.FromUsername]
+	content := ctx.ReceiveContent.Content
+	switch ctx.Conversation.Status {
 	case "":
 		if !utils.IfWordInSlice(content, utils.CitySlice) {
 			err = ctx.replyText(cityInvalidPrompt)
 		} else {
 			conversation.Status = "waitconfirm"
-			if conversation.Type == 1 {
-				conversation.LoseForm.City = content
-			} else {
-				conversation.PickForm.City = content
-			}
+			conversation.Form.City = content
 			// 询问,要求确认城市名称无误
 			err = ctx.replyText(fmt.Sprintf("您所在的城市是:%s\n1.yes\n2.no", content))
 		}
@@ -245,15 +228,11 @@ func stage2AddConversation(ctx ConversationContext) (err error) {
 
 // 阶段3 添加物品名称 需要进行确认
 func stage3ItemConversation(ctx ConversationContext) (err error) {
-	content := ctx.receiveContent.Content
-	conversation := conversationMap[ctx.receiveContent.FromUsername]
+	content := ctx.ReceiveContent.Content
+	conversation := conversationMap[ctx.ReceiveContent.FromUsername]
 	switch conversation.Status {
 	case "":
-		if conversation.Type == 1 {
-			conversation.LoseForm.ItemName = content
-		} else {
-			conversation.PickForm.ItemName = content
-		}
+		conversation.Form.ItemName = content
 		err = ctx.replyText(fmt.Sprintf("物品名称为:%s\n1.yes\n2.no", content))
 		conversation.Status = "waitconfirm"
 	case "waitconfirm":
@@ -278,16 +257,12 @@ func stage3ItemConversation(ctx ConversationContext) (err error) {
 
 // 阶段4 添加描述 需要确认 	并生成标签,~~询问用户是否还要加上新的标签~~（暂时不做...）
 func stage4DescriptionConversation(ctx ConversationContext) (err error) {
-	content := ctx.receiveContent.Content
-	conversation := conversationMap[ctx.receiveContent.FromUsername]
+	content := ctx.ReceiveContent.Content
+	conversation := conversationMap[ctx.ReceiveContent.FromUsername]
 	switch conversation.Status {
 	case "":
 		conversation.Status = "waitconfirm"
-		if conversation.Type == 1 {
-			conversation.LoseForm.Description = content
-		} else {
-			conversation.PickForm.Description = content
-		}
+		conversation.Form.Description = content
 		err = ctx.replyText(fmt.Sprintf("您的描述是:\n%s\n1.yes\n2.no", content))
 	case "waitconfirm":
 		conversation.Status = ""
@@ -295,22 +270,12 @@ func stage4DescriptionConversation(ctx ConversationContext) (err error) {
 		case "1", "yes":
 			conversation.Stage = 5
 			allTextBuilder := strings.Builder{}
-			if conversation.Type == 1 {
-				// TODO 使用接口减少重复代码
-				allTextBuilder.WriteString(conversation.LoseForm.City)
-				allTextBuilder.WriteString(conversation.LoseForm.ItemName)
-				allTextBuilder.WriteString(conversation.LoseForm.Description)
-				tags := GenerateTags(allTextBuilder.String())
-				log.Println("物品TAGS:", tags)
-				conversation.LoseForm.ItemTags = tags
-			} else {
-				allTextBuilder.WriteString(conversation.PickForm.City)
-				allTextBuilder.WriteString(conversation.PickForm.ItemName)
-				allTextBuilder.WriteString(conversation.PickForm.Description)
-				tags := GenerateTags(allTextBuilder.String())
-				log.Println("物品TAGS:", tags)
-				conversation.PickForm.ItemTags = tags
-			}
+			allTextBuilder.WriteString(conversation.Form.City)
+			allTextBuilder.WriteString(conversation.Form.ItemName)
+			allTextBuilder.WriteString(conversation.Form.Description)
+			tags := GenerateTags(allTextBuilder.String())
+			log.Println("物品TAGS:", tags)
+			conversation.Form.ItemTags = tags
 			err = ctx.replyText(askImgPrompt)
 		case "2", "no":
 			fallthrough
@@ -323,39 +288,29 @@ func stage4DescriptionConversation(ctx ConversationContext) (err error) {
 
 // 阶段5 添加图片 需要确认
 func stage5ImgConversation(ctx ConversationContext) (err error) {
-	if ctx.conversation.Stage != 5 {
+	if ctx.Conversation.Stage != 5 {
 		err = ctx.replyText("当前会话阶段无法处理图片")
 	} else {
-		switch ctx.conversation.Status {
+		switch ctx.Conversation.Status {
 		case "":
-			ctx.conversation.Status = "waitconfirm"
-			if imgContent := ctx.imgContent; imgContent != nil {
-				log.Println("读取到图片消息", ctx.imgContent)
-				if ctx.conversation.Type == 1 {
-					ctx.conversation.LoseForm.ItemImg = imgContent.PicUrl
-				} else {
-					ctx.conversation.PickForm.ItemImg = imgContent.PicUrl
-				}
+			ctx.Conversation.Status = "waitconfirm"
+			if imgContent := ctx.ImgContent; imgContent != nil {
+				log.Println("读取到图片消息", ctx.ImgContent)
+				ctx.Conversation.Form.ItemImg = imgContent.PicUrl
 				err = ctx.replyText("确认是这张图片吗?\n1.yes\n2.no")
 			} else {
 				// 没有图片需要上传的情况
-				ctx.conversation.PickForm.ItemImg = ""
-				ctx.conversation.LoseForm.ItemImg = ""
+				ctx.Conversation.Form.ItemImg = ""
 				err = ctx.replyText("确认没有图片需要上传吗?\n1.yes\n2.no")
 			}
 		case "waitconfirm":
-			ctx.conversation.Status = ""
-			switch ctx.receiveContent.Content {
+			ctx.Conversation.Status = ""
+			switch ctx.ReceiveContent.Content {
 			case "1", "yes":
 				// 生成最终的表格要求确认以添加到数据库  （或者将图片下载放到这里?）
-				var picUrl string
-				if ctx.conversation.Type == 1 {
-					picUrl = ctx.conversation.LoseForm.ItemImg
-				} else {
-					picUrl = ctx.conversation.PickForm.ItemImg
-				}
+				picUrl := ctx.Conversation.Form.ItemImg
 				if picUrl != "" {
-					utils.DownloadFile(picUrl)
+					ctx.Conversation.Form.ItemImgName = utils.DownloadFile(picUrl)
 					log.Println("图片已下载")
 				}
 				// TODO stage change

@@ -18,7 +18,7 @@ func CheckError(err error, where string) {
 	}
 }
 
-func DownloadFile(url string) {
+func DownloadFile(url string) (downloadFileName string) {
 	defer func() {
 		r := recover()
 		if r != nil {
@@ -32,10 +32,12 @@ func DownloadFile(url string) {
 	log.Println("下载文件", fileName)
 	defer resp.Body.Close()
 	out, err := os.Create(filepath.Join("imgs", fileName) + ".png")
+	downloadFileName = fileName + ".png"
 	CheckError(err, "图片下载")
 	defer out.Close()
 	_, err = io.Copy(out, resp.Body)
 	CheckError(err, "图片写入")
+	return
 }
 
 func MetricTimeCost(funcName string) func() {
