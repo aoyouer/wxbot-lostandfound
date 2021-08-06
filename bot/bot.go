@@ -145,16 +145,9 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 			定时推送消息
 	*/
 	case "text":
-		// TODO 首先查询是否已有的会话
-		// 通过不同的输入切换不同的选项以及阶段
-		words, _, _ := ParseMsg(msgContent.Content)
-		log.Println("分词:", words)
-		// 回复信息
 		err = startConversation(msgContent, nil, w, timestamp, nonce)
 		utils.CheckError(err, "被动回复消息")
 	case "image":
-		// 如果发送的是图片的话,下载图片
-		// TODO 只有阶段5才进行下载
 		imgMsgContent := imgMsgContentPool.Get().(*ImgContent)
 		_ = xml.Unmarshal(msg, imgMsgContent)
 		err = startConversation(msgContent, imgMsgContent, w, timestamp, nonce)

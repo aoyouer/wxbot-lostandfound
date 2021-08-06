@@ -37,7 +37,7 @@ type Conversation struct {
 	Operation      string // 采取的操作 如添加记录或者查看列表
 	PickForm       PickForm
 	LoseForm       LoseForm
-	Confirm        bool
+	Status         string
 }
 
 // 捡到东西的表单
@@ -103,6 +103,7 @@ func startConversation(receiveContent *MsgContent, imgContent *ImgContent, w htt
 
 	if conversation, exist := conversationMap[receiveContent.FromUsername]; exist {
 		// 后续会话
+		conversation.LastActive = time.Now()
 		switch conversation.Stage {
 		case 0:
 			fmt.Println("阶段0")
@@ -129,15 +130,15 @@ func startConversation(receiveContent *MsgContent, imgContent *ImgContent, w htt
 			err = stage5ImgConversation(ctx)
 		}
 	} else {
-		err = initConversationo(ctx)
+		err = initConversation(ctx)
 	}
 	return
 }
 
-func initConversationo(ctx ConversationContext) (err error) {
+func initConversation(ctx ConversationContext) (err error) {
 	// 还未记录map
 	err = ctx.replyText(initPrompt)
-	//err = replyText(receiveContent, w, timestamp, nonce, "欢迎使用失物小助手，请问您遇到了什么问题呢?\n1.我丢失了物品\n2.我捡到了物品\n3.我是管理员!")
+	// 保存当前会话
 	if err == nil {
 		conversationMap[ctx.receiveContent.FromUsername] = &Conversation{
 			UserName:   ctx.receiveContent.FromUsername,
@@ -145,6 +146,11 @@ func initConversationo(ctx ConversationContext) (err error) {
 			Stage:      0,
 		}
 	}
+	return
+}
+
+// 进行询问并切换阶段
+func switchStage(ctx ConversationContext, targetStage int) (err error) {
 	return
 }
 
@@ -196,86 +202,176 @@ func stage1Conversation(ctx ConversationContext) (err error) {
 	return
 }
 
-// 阶段2 添加地点
+// 阶段2 添加地点 需要确认
 func stage2AddConversation(ctx ConversationContext) (err error) {
 	// TODO 对城市进行检查
 	conversation := conversationMap[ctx.receiveContent.FromUsername]
-	city := ctx.receiveContent.Content
-	if !utils.IfWordInSlice(city, utils.CitySlice) {
-		err = ctx.replyText(cityInvalidPrompt)
-	} else {
-		if conversation.Type == 1 {
-			conversation.LoseForm.City = city
-			err = ctx.replyText(askLostItemPrompt)
+	content := ctx.receiveContent.Content
+	switch ctx.conversation.Status {
+	case "":
+		if !utils.IfWordInSlice(content, utils.CitySlice) {
+			err = ctx.replyText(cityInvalidPrompt)
 		} else {
-			conversation.PickForm.City = city
-			err = ctx.replyText(askFoundItemPrompt)
+			conversation.Status = "waitconfirm"
+			if conversation.Type == 1 {
+				conversation.LoseForm.City = content
+			} else {
+				conversation.PickForm.City = content
+			}
+			// 询问,要求确认城市名称无误
+			err = ctx.replyText(fmt.Sprintf("您所在的城市是:%s\n1.yes\n2.no", content))
 		}
-		conversation.Stage = 3
+	case "waitconfirm":
+		// 要求进行确认
+		conversation.Status = ""
+		switch content {
+		case "1", "yes":
+			conversation.Stage = 3
+			if conversation.Type == 1 {
+				err = ctx.replyText(askLostItemPrompt)
+			} else {
+				err = ctx.replyText(askFoundItemPrompt)
+			}
+		case "2", "no":
+			fallthrough
+		default:
+			// 重新进行输入
+			err = ctx.replyText("请重新输入城市名")
+		}
 	}
+
 	return
 }
 
-// 阶段3 添加物品名称
+// 阶段3 添加物品名称 需要进行确认
 func stage3ItemConversation(ctx ConversationContext) (err error) {
 	content := ctx.receiveContent.Content
 	conversation := conversationMap[ctx.receiveContent.FromUsername]
-	if conversation.Type == 1 {
-		conversation.LoseForm.ItemName = content
-		err = ctx.replyText(askLostDescriptionPrompt)
-	} else {
-		conversation.PickForm.ItemName = content
-		err = ctx.replyText(askPickDescriptionPrompt)
+	switch conversation.Status {
+	case "":
+		if conversation.Type == 1 {
+			conversation.LoseForm.ItemName = content
+		} else {
+			conversation.PickForm.ItemName = content
+		}
+		err = ctx.replyText(fmt.Sprintf("物品名称为:%s\n1.yes\n2.no", content))
+		conversation.Status = "waitconfirm"
+	case "waitconfirm":
+		conversation.Status = ""
+		switch content {
+		case "1", "yes":
+			conversation.Stage = 4
+			if conversation.Type == 1 {
+				err = ctx.replyText(askLostDescriptionPrompt)
+			} else {
+				err = ctx.replyText(askPickDescriptionPrompt)
+			}
+		case "2", "no":
+			fallthrough
+		default:
+			err = ctx.replyText("请重新输入物品名称")
+		}
 	}
-	conversation.Stage = 4
 	// 根据之前的输入生成标签
 	return
 }
 
-// 阶段4 添加描述 并生成标签,询问用户是否还要加上新的标签
+// 阶段4 添加描述 需要确认 	并生成标签,~~询问用户是否还要加上新的标签~~（暂时不做...）
 func stage4DescriptionConversation(ctx ConversationContext) (err error) {
-	desc := ctx.receiveContent.Content
+	content := ctx.receiveContent.Content
 	conversation := conversationMap[ctx.receiveContent.FromUsername]
-	allTextBuilder := strings.Builder{}
-	if conversation.Type == 1 {
-		conversation.LoseForm.Description = desc
-		allTextBuilder.WriteString(conversation.LoseForm.City)
-		allTextBuilder.WriteString(conversation.LoseForm.ItemName)
-		allTextBuilder.WriteString(conversation.LoseForm.Description)
-		tags := GenerateTags(allTextBuilder.String())
-		log.Println("物品ID:", tags)
-		conversation.LoseForm.ItemTags = tags
-		err = sendTextToUser("解析出来的标签:\n"+strings.Join(tags, ","), ctx.receiveContent.FromUsername)
-		if err != nil {
-			log.Println("主动消息", err.Error())
+	switch conversation.Status {
+	case "":
+		conversation.Status = "waitconfirm"
+		if conversation.Type == 1 {
+			conversation.LoseForm.Description = content
+		} else {
+			conversation.PickForm.Description = content
 		}
-	} else {
-		conversation.PickForm.Description = desc
-		allTextBuilder.WriteString(conversation.PickForm.City)
-		allTextBuilder.WriteString(conversation.PickForm.ItemName)
-		allTextBuilder.WriteString(conversation.PickForm.Description)
-		tags := GenerateTags(allTextBuilder.String())
-		log.Println("物品ID:", tags)
-		conversation.PickForm.ItemTags = tags
+		err = ctx.replyText(fmt.Sprintf("您的描述是:\n%s\n1.yes\n2.no", content))
+	case "waitconfirm":
+		conversation.Status = ""
+		switch content {
+		case "1", "yes":
+			conversation.Stage = 5
+			allTextBuilder := strings.Builder{}
+			if conversation.Type == 1 {
+				// TODO 使用接口减少重复代码
+				allTextBuilder.WriteString(conversation.LoseForm.City)
+				allTextBuilder.WriteString(conversation.LoseForm.ItemName)
+				allTextBuilder.WriteString(conversation.LoseForm.Description)
+				tags := GenerateTags(allTextBuilder.String())
+				log.Println("物品TAGS:", tags)
+				conversation.LoseForm.ItemTags = tags
+			} else {
+				allTextBuilder.WriteString(conversation.PickForm.City)
+				allTextBuilder.WriteString(conversation.PickForm.ItemName)
+				allTextBuilder.WriteString(conversation.PickForm.Description)
+				tags := GenerateTags(allTextBuilder.String())
+				log.Println("物品TAGS:", tags)
+				conversation.PickForm.ItemTags = tags
+			}
+			err = ctx.replyText(askImgPrompt)
+		case "2", "no":
+			fallthrough
+		default:
+			err = ctx.replyText("请重新输入描述")
+		}
 	}
-	conversation.Stage = 5
-	err = ctx.replyText(askImgPrompt)
 	return
 }
 
-// 阶段5 添加图片
+// 阶段5 添加图片 需要确认
 func stage5ImgConversation(ctx ConversationContext) (err error) {
 	if ctx.conversation.Stage != 5 {
 		err = ctx.replyText("当前会话阶段无法处理图片")
 	} else {
-		if imgContent := ctx.imgContent; imgContent != nil {
-			log.Println("读取到图片消息", ctx.imgContent)
-			utils.DownloadFile(ctx.imgContent.PicUrl)
-			err = ctx.replyText("图片已下载")
-		} else {
-			// 没有图片需要上传的情况
-			err = ctx.replyText("没有图片需要上传")
+		switch ctx.conversation.Status {
+		case "":
+			ctx.conversation.Status = "waitconfirm"
+			if imgContent := ctx.imgContent; imgContent != nil {
+				log.Println("读取到图片消息", ctx.imgContent)
+				if ctx.conversation.Type == 1 {
+					ctx.conversation.LoseForm.ItemImg = imgContent.PicUrl
+				} else {
+					ctx.conversation.PickForm.ItemImg = imgContent.PicUrl
+				}
+				err = ctx.replyText("确认是这张图片吗?\n1.yes\n2.no")
+			} else {
+				// 没有图片需要上传的情况
+				ctx.conversation.PickForm.ItemImg = ""
+				ctx.conversation.LoseForm.ItemImg = ""
+				err = ctx.replyText("确认没有图片需要上传吗?\n1.yes\n2.no")
+			}
+		case "waitconfirm":
+			ctx.conversation.Status = ""
+			switch ctx.receiveContent.Content {
+			case "1", "yes":
+				// 生成最终的表格要求确认以添加到数据库  （或者将图片下载放到这里?）
+				var picUrl string
+				if ctx.conversation.Type == 1 {
+					picUrl = ctx.conversation.LoseForm.ItemImg
+				} else {
+					picUrl = ctx.conversation.PickForm.ItemImg
+				}
+				if picUrl != "" {
+					utils.DownloadFile(picUrl)
+					log.Println("图片已下载")
+				}
+				// TODO stage change
+				// TODO 写入数据库与推送到群消息前确认
+			case "2", "no":
+				fallthrough
+			default:
+				// 另外删除本地的图片
+				err = ctx.replyText("请重新决定吧")
+			}
 		}
 	}
+	return
+}
+
+// TODO 展示当前表单已填项目
+func showForm(ctx ConversationContext) (form string) {
 	return
 }
