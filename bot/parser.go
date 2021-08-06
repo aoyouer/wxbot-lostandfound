@@ -25,3 +25,25 @@ func ParseMsg(msg string) (allWords []string, placeWords []string, nameWords []s
 	}
 	return
 }
+
+// 根据已经输入的内容 自动生成标签
+
+func GenerateTags(input string) (tags []string) {
+	defer utils.MetricTimeCost("标签生成")()
+	jieba := gojieba.NewJieba()
+	defer jieba.Free()
+	allWords := jieba.Tag(input)
+	tagSet := make(map[string]struct{})
+	for _, word := range allWords {
+		words := strings.Split(word, "/")
+		switch words[1] {
+		// 当前标签提取 名词 地点
+		case "ns","n","eng":
+			tagSet[words[0]] = struct{}{}
+		}
+	}
+	for tag := range tagSet {
+		tags = append(tags, tag)
+	}
+	return
+}

@@ -1,8 +1,10 @@
 package bot
 
 import (
+	"encoding/json"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -13,15 +15,25 @@ import (
 
 type BotConfig struct {
 	CorpId         string
+	CorpSecret     string
+	AgentId        int
 	Token          string
+	AccessToken    string
 	EncodingAesKey string
 }
+type TokenResponse struct {
+	Errcode     int    `json:"errcode"`
+	Errmsg      string `json:"errmsg"`
+	AccessToken string `json:"access_token"`
+	ExpiresIn   int    `json:"expires_in"`
+}
+
 type HandleFunc func(http.ResponseWriter, *http.Request)
 
 var (
-	msgContentPool, imgMsgContentPool, replyTextMsgPool sync.Pool
-	botConfig                                           *BotConfig
-	wxcrypt                                             *wxbizmsgcrypt.WXBizMsgCrypt
+	msgContentPool, imgMsgContentPool, replyTextMsgPool, initiativeTextMsgPool sync.Pool
+	botConfig                                                                  *BotConfig
+	wxcrypt                                                                    *wxbizmsgcrypt.WXBizMsgCrypt
 	// 会话map,定时清理
 	conversationMap map[string]*Conversation
 )
@@ -44,6 +56,11 @@ func init() {
 			return new(ReplyTextMsg)
 		},
 	}
+	initiativeTextMsgPool = sync.Pool{
+		New: func() interface{} {
+			return new(InitiativeTextMsg)
+		},
+	}
 }
 
 func GetBotConfig() *BotConfig {
@@ -53,6 +70,9 @@ func GetBotConfig() *BotConfig {
 func Start() {
 	// receive_id 企业应用的回调，表示corpid
 	log.Println("Starting bot...")
+	token, err := getAccessToken()
+	botConfig.AccessToken = token
+	utils.CheckError(err, "初始化获取access token")
 	wxcrypt = wxbizmsgcrypt.NewWXBizMsgCrypt(botConfig.Token, botConfig.EncodingAesKey, botConfig.CorpId, wxbizmsgcrypt.XmlType)
 	// 开启一个http服务器，接收来自企业微信的消息
 	http.HandleFunc("/api/bot/message", func(w http.ResponseWriter, r *http.Request) {
@@ -130,7 +150,7 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 		words, _, _ := ParseMsg(msgContent.Content)
 		log.Println("分词:", words)
 		// 回复信息
-		err = startConversation(*msgContent,w,timestamp,nonce)
+		err = startConversation(*msgContent, w, timestamp, nonce)
 		utils.CheckError(err, "被动回复消息")
 	case "image":
 		// 如果发送的是图片的话,下载图片
@@ -148,10 +168,6 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 	msgContentPool.Put(msgContent)
 }
 
-
-
-
-
 func protect(function HandleFunc) HandleFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
 		defer func() {
@@ -166,4 +182,21 @@ func protect(function HandleFunc) HandleFunc {
 		}()
 		function(writer, request)
 	}
+}
+
+func getAccessToken() (accessToken string, err error) {
+	resp, err := http.Get(fmt.Sprintf("https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=%s&corpsecret=%s", botConfig.CorpId, botConfig.CorpSecret))
+	accessTokenResponse := new(TokenResponse)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	err = json.Unmarshal(body, accessTokenResponse)
+	if err != nil {
+		return
+	}
+	accessToken = accessTokenResponse.AccessToken
+	botConfig.AccessToken = accessTokenResponse.AccessToken
+	return
 }
