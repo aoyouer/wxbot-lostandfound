@@ -257,6 +257,7 @@ func stage5ImgConversation(ctx conversation.ConversationContext) (err error) {
 			if imgContent := ctx.ImgContent; imgContent != nil {
 				log.Println("读取到图片消息", ctx.ImgContent)
 				ctx.Conversation.Form.ItemImg = imgContent.PicUrl
+				ctx.ImgContent = nil
 				err = replyTextWithCtx(ctx, "确认是这张图片吗?\n1.yes\n2.no")
 			} else {
 				// 没有图片需要上传的情况
@@ -270,8 +271,13 @@ func stage5ImgConversation(ctx conversation.ConversationContext) (err error) {
 				// 生成最终的表格要求确认以添加到数据库  （或者将图片下载放到这里?）
 				picUrl := ctx.Conversation.Form.ItemImg
 				if picUrl != "" {
+					// 下载完成后的消息采取主动推送，否则的超过5秒连接会被断开，无法回复
+					log.Println("开始下载图片")
+					err = replyTextWithCtx(ctx,"开始下载图片")
 					ctx.Conversation.Form.ItemImgName = utils.DownloadFile(picUrl)
 					log.Println("图片已下载")
+				} else {
+					err = replyTextWithCtx(ctx,"选择不上传图片")
 				}
 				ctx.Conversation.Stage = 6
 				err = askForConfirm(ctx)
@@ -287,7 +293,7 @@ func stage5ImgConversation(ctx conversation.ConversationContext) (err error) {
 }
 
 // 提交数据库前的确认 stage6
-
+// TODO 存在BUG 未调用
 func askForConfirm(ctx conversation.ConversationContext) (err error) {
 	switch ctx.Conversation.Status {
 	case "":
@@ -297,7 +303,7 @@ func askForConfirm(ctx conversation.ConversationContext) (err error) {
 			msg := fmt.Sprintf("在提交前进行确认:\n城市:%s\n物品:%s\n描述:%s\n标签:%s\n1.yes\n2.no", ctx.Conversation.Form.City,
 				ctx.Conversation.Form.ItemName, ctx.Conversation.Form.Description, strings.Join(ctx.Conversation.Form.ItemTags, ","))
 			//err = sendTextToUser(msg, ctx.ReceiveContent.FromUsername)
-			err = replyTextWithCtx(ctx, msg)
+			err = sendTextToUser(msg, ctx.ReceiveContent.FromUsername)
 		} else {
 			// 选择切换stage处理
 			switch ctx.ReceiveContent.Content {

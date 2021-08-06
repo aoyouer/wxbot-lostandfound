@@ -54,6 +54,7 @@ func replyTextWithCtx(ctx conversation.ConversationContext, text string) (err er
 //主动发送消息
 
 func sendTextToUser(text string, userName string) error {
+	log.Println("给用户主动发送消息")
 	initiativeMsgResponse := &conversation.InitiativeMsgResponse{}
 	initiativeTextMsg := conversation.InitiativeTextMsgPool.Get().(*conversation.InitiativeTextMsg)
 	initiativeTextMsg.Agentid = botConfig.AgentId
