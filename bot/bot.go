@@ -8,7 +8,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"sync"
+	"wxbot-lostandfound/conversation"
 	"wxbot-lostandfound/utils"
 	"wxbot-lostandfound/wxbizmsgcrypt"
 )
@@ -31,36 +31,15 @@ type TokenResponse struct {
 type HandleFunc func(http.ResponseWriter, *http.Request)
 
 var (
-	msgContentPool, imgMsgContentPool, replyTextMsgPool, initiativeTextMsgPool sync.Pool
 	botConfig                                                                  *BotConfig
 	wxcrypt                                                                    *wxbizmsgcrypt.WXBizMsgCrypt
 	// 会话map,定时清理
-	conversationMap map[string]*Conversation
+	conversationMap map[string]*conversation.Conversation
 )
 
 func init() {
 	botConfig = new(BotConfig)
-	conversationMap = make(map[string]*Conversation)
-	msgContentPool = sync.Pool{
-		New: func() interface{} {
-			return new(MsgContent)
-		},
-	}
-	imgMsgContentPool = sync.Pool{
-		New: func() interface{} {
-			return new(ImgContent)
-		},
-	}
-	replyTextMsgPool = sync.Pool{
-		New: func() interface{} {
-			return new(ReplyTextMsg)
-		},
-	}
-	initiativeTextMsgPool = sync.Pool{
-		New: func() interface{} {
-			return new(InitiativeTextMsg)
-		},
-	}
+	conversationMap = make(map[string]*conversation.Conversation)
 }
 
 func GetBotConfig() *BotConfig {
@@ -115,7 +94,7 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 		utils.CheckError(errors.New(cryptErr.ErrMsg), "解密消息")
 	}
 	// 因为只是需要临时用于反序列化 所以使用了结构池
-	msgContent := msgContentPool.Get().(*MsgContent)
+	msgContent := conversation.MsgContentPool.Get().(*conversation.MsgContent)
 	utils.CheckError(xml.Unmarshal(msg, &msgContent), "消息反序列化")
 	log.Println("读取到消息", msgContent)
 	// 读取当前的会话map
@@ -148,16 +127,16 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 		err = startConversation(msgContent, nil, w, timestamp, nonce)
 		utils.CheckError(err, "被动回复消息")
 	case "image":
-		imgMsgContent := imgMsgContentPool.Get().(*ImgContent)
+		imgMsgContent := conversation.ImgMsgContentPool.Get().(*conversation.ImgContent)
 		_ = xml.Unmarshal(msg, imgMsgContent)
 		err = startConversation(msgContent, imgMsgContent, w, timestamp, nonce)
-		imgMsgContentPool.Put(imgMsgContent)
+		conversation.ImgMsgContentPool.Put(imgMsgContent)
 	default:
 		// 无法处理的消息
 		err = replyText(*msgContent, w, timestamp, nonce, "抱歉,机器人无法处理当前类型消息。")
 		utils.CheckError(err, "被动回复消息(消息无法处理)")
 	}
-	msgContentPool.Put(msgContent)
+	conversation.MsgContentPool.Put(msgContent)
 }
 
 func protect(function HandleFunc) HandleFunc {

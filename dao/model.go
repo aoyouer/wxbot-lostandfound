@@ -31,3 +31,4 @@ type TagItem struct {
 	Type      uint // 捡到物品的记录和丢失物品的记录的标签分开处理
 
 }
+

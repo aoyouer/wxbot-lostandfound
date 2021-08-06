@@ -7,7 +7,7 @@ import (
 	"log"
 	"strings"
 	"sync"
-	"wxbot-lostandfound/bot"
+	"wxbot-lostandfound/conversation"
 	"wxbot-lostandfound/utils"
 )
 
@@ -43,7 +43,7 @@ func GetDB() *gorm.DB {
 	return db
 }
 
-func AddRecord(ctx bot.ConversationContext) (err error) {
+func AddRecord(ctx conversation.ConversationContext) (err error) {
 	// 读取出标签进行储存
 	itemRecord := itemRecordPool.Get().(*ItemRecord)
 	defer itemRecordPool.Put(itemRecord)
