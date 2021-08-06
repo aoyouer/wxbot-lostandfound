@@ -53,6 +53,9 @@ func Start() {
 	botConfig.AccessToken = token
 	utils.CheckError(err, "初始化获取access token")
 	wxcrypt = wxbizmsgcrypt.NewWXBizMsgCrypt(botConfig.Token, botConfig.EncodingAesKey, botConfig.CorpId, wxbizmsgcrypt.XmlType)
+	// 静态文件服务器，用于展示图片
+	fs := http.FileServer(http.Dir("imgs/"))
+	http.Handle("/api/bot/imgs/", http.StripPrefix("/api/bot/imgs/", fs))
 	// 开启一个http服务器，接收来自企业微信的消息
 	http.HandleFunc("/api/bot/message", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {

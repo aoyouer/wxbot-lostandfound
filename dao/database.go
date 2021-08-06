@@ -2,7 +2,6 @@ package dao
 
 import (
 	"errors"
-	"fmt"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"log"
