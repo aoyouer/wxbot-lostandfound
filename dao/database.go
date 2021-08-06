@@ -29,12 +29,12 @@ func init() {
 	}
 	tagPool = sync.Pool{
 		New: func() interface{} {
-			return new(ItemRecord)
+			return new(Tag)
 		},
 	}
 	tagItemPool = sync.Pool{
 		New: func() interface{} {
-			return new(ItemRecord)
+			return new(TagItem)
 		},
 	}
 }

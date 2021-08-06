@@ -38,35 +38,35 @@ func startConversation(ReceiveContent *conversation.MsgContent, imgContent *conv
 		Conversation:   conversationMap[ReceiveContent.FromUsername],
 	}
 
-	if conversation, exist := conversationMap[ReceiveContent.FromUsername]; exist {
+	if c, exist := conversationMap[ReceiveContent.FromUsername]; exist {
 		// 后续会话
-		conversation.LastActive = time.Now()
-		switch conversation.Stage {
+		c.LastActive = time.Now()
+		switch c.Stage {
 		case 0:
-			fmt.Println("阶段0")
+			log.Println("阶段0")
 			err = stage0Conversation(ctx)
 		case 1:
-			fmt.Println("阶段1")
+			log.Println("阶段1")
 			err = stage1Conversation(ctx)
 		case 2:
 			// 阶段二会有分叉,因为可能是添加记录或者只是查看记录
 			// 添加记录的
-			if conversation.Operation == "add" {
+			if c.Operation == "add" {
 				err = stage2AddConversation(ctx)
 			} else {
 
 			}
 		case 3:
-			fmt.Println("阶段3")
+			log.Println("阶段3")
 			err = stage3ItemConversation(ctx)
 		case 4:
-			fmt.Println("阶段4")
+			log.Println("阶段4")
 			err = stage4DescriptionConversation(ctx)
 		case 5:
-			fmt.Println("阶段5")
+			log.Println("阶段5")
 			err = stage5ImgConversation(ctx)
 		case 6:
-			fmt.Println("阶段6")
+			log.Println("阶段6")
 			err = askForConfirm(ctx)
 		}
 	} else {
@@ -274,7 +274,6 @@ func stage5ImgConversation(ctx conversation.ConversationContext) (err error) {
 					log.Println("图片已下载")
 				}
 				ctx.Conversation.Stage = 6
-				err = replyTextWithCtx(ctx, "请确认下面的信息是否正确:")
 				err = askForConfirm(ctx)
 			case "2", "no":
 				fallthrough
@@ -297,7 +296,8 @@ func askForConfirm(ctx conversation.ConversationContext) (err error) {
 			ctx.Conversation.Status = "waitconfirm"
 			msg := fmt.Sprintf("在提交前进行确认:\n城市:%s\n物品:%s\n描述:%s\n标签:%s\n1.yes\n2.no", ctx.Conversation.Form.City,
 				ctx.Conversation.Form.ItemName, ctx.Conversation.Form.Description, strings.Join(ctx.Conversation.Form.ItemTags, ","))
-			err = sendTextToUser(msg, ctx.ReceiveContent.FromUsername)
+			//err = sendTextToUser(msg, ctx.ReceiveContent.FromUsername)
+			err = replyTextWithCtx(ctx, msg)
 		} else {
 			// 选择切换stage处理
 			switch ctx.ReceiveContent.Content {
