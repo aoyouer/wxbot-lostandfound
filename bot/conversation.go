@@ -41,7 +41,6 @@ type Conversation struct {
 }
 
 // 捡到东西的表单
-
 type PickForm struct {
 	Who         string
 	City        string   // 城市
@@ -53,7 +52,6 @@ type PickForm struct {
 }
 
 // 遗失物品的表单
-
 type LoseForm struct {
 	Who         string
 	City        string   // 城市
@@ -65,7 +63,9 @@ type LoseForm struct {
 }
 
 type ConversationContext struct {
-	receiveContent MsgContent
+	receiveContent *MsgContent
+	imgContent     *ImgContent
+	conversation   *Conversation
 	w              http.ResponseWriter
 	timestamp      string
 	nonce          string
@@ -91,12 +91,14 @@ func (c ConversationContext) replyText(text string) (err error) {
 }
 
 // 开始会话
-func startConversation(receiveContent MsgContent, w http.ResponseWriter, timestamp string, nonce string) (err error) {
+func startConversation(receiveContent *MsgContent, imgContent *ImgContent, w http.ResponseWriter, timestamp string, nonce string) (err error) {
 	ctx := ConversationContext{
 		receiveContent: receiveContent,
+		imgContent:     imgContent,
 		w:              w,
 		timestamp:      timestamp,
 		nonce:          nonce,
+		conversation:   conversationMap[receiveContent.FromUsername],
 	}
 
 	if conversation, exist := conversationMap[receiveContent.FromUsername]; exist {
@@ -122,6 +124,9 @@ func startConversation(receiveContent MsgContent, w http.ResponseWriter, timesta
 		case 4:
 			fmt.Println("阶段4")
 			err = stage4DescriptionConversation(ctx)
+		case 5:
+			fmt.Println("阶段5")
+			err = stage5ImgConversation(ctx)
 		}
 	} else {
 		err = initConversationo(ctx)
@@ -215,13 +220,6 @@ func stage2AddConversation(ctx ConversationContext) (err error) {
 func stage3ItemConversation(ctx ConversationContext) (err error) {
 	content := ctx.receiveContent.Content
 	conversation := conversationMap[ctx.receiveContent.FromUsername]
-	//switch content {
-	//case "1","确认":
-	//	conversation.Confirm = true
-	//case "2","修改":
-	//default:
-	//
-	//}
 	if conversation.Type == 1 {
 		conversation.LoseForm.ItemName = content
 		err = ctx.replyText(askLostDescriptionPrompt)
@@ -249,7 +247,7 @@ func stage4DescriptionConversation(ctx ConversationContext) (err error) {
 		conversation.LoseForm.ItemTags = tags
 		err = sendTextToUser("解析出来的标签:\n"+strings.Join(tags, ","), ctx.receiveContent.FromUsername)
 		if err != nil {
-			fmt.Println("主动消息", err.Error())
+			log.Println("主动消息", err.Error())
 		}
 	} else {
 		conversation.PickForm.Description = desc
@@ -260,6 +258,24 @@ func stage4DescriptionConversation(ctx ConversationContext) (err error) {
 		log.Println("物品ID:", tags)
 		conversation.PickForm.ItemTags = tags
 	}
+	conversation.Stage = 5
 	err = ctx.replyText(askImgPrompt)
+	return
+}
+
+// 阶段5 添加图片
+func stage5ImgConversation(ctx ConversationContext) (err error) {
+	if ctx.conversation.Stage != 5 {
+		err = ctx.replyText("当前会话阶段无法处理图片")
+	} else {
+		if imgContent := ctx.imgContent; imgContent != nil {
+			log.Println("读取到图片消息", ctx.imgContent)
+			utils.DownloadFile(ctx.imgContent.PicUrl)
+			err = ctx.replyText("图片已下载")
+		} else {
+			// 没有图片需要上传的情况
+			err = ctx.replyText("没有图片需要上传")
+		}
+	}
 	return
 }

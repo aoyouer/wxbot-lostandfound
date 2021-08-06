@@ -150,15 +150,14 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 		words, _, _ := ParseMsg(msgContent.Content)
 		log.Println("分词:", words)
 		// 回复信息
-		err = startConversation(*msgContent, w, timestamp, nonce)
+		err = startConversation(msgContent, nil, w, timestamp, nonce)
 		utils.CheckError(err, "被动回复消息")
 	case "image":
 		// 如果发送的是图片的话,下载图片
-		// TODO 需要判断当前会话阶段来决定是否需要下载 stage
+		// TODO 只有阶段5才进行下载
 		imgMsgContent := imgMsgContentPool.Get().(*ImgContent)
-		_ = xml.Unmarshal(msg, &imgMsgContent)
-		log.Println("读取到图片消息", imgMsgContent)
-		utils.DownloadFile(imgMsgContent.PicUrl)
+		_ = xml.Unmarshal(msg, imgMsgContent)
+		err = startConversation(msgContent, imgMsgContent, w, timestamp, nonce)
 		imgMsgContentPool.Put(imgMsgContent)
 	default:
 		// 无法处理的消息
