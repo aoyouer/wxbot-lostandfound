@@ -35,13 +35,13 @@ var (
 	wxcrypt   *wxbizmsgcrypt.WXBizMsgCrypt
 	// 会话map,定时清理
 	conversationMap map[string]*conversation.Conversation
-	acceptMap       map[string]struct{}
+	acceptMap       map[uint32]struct{}
 )
 
 func init() {
 	botConfig = new(BotConfig)
 	conversationMap = make(map[string]*conversation.Conversation)
-	acceptMap = make(map[string]struct{}) // 用于去除重复时间戳的消息
+	acceptMap = make(map[uint32]struct{}) // 用于去除重复时间戳的消息
 }
 
 func GetBotConfig() *BotConfig {
@@ -102,7 +102,7 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 	msgContent := conversation.MsgContentPool.Get().(*conversation.MsgContent)
 	utils.CheckError(xml.Unmarshal(msg, &msgContent), "消息反序列化")
 	log.Println("读取到消息", msgContent)
-	if _, exist := acceptMap[timestamp]; exist {
+	if _, exist := acceptMap[msgContent.CreateTime]; exist {
 		log.Println("接收到重复的消息")
 	} else {
 		// 读取当前的会话map
