@@ -105,6 +105,7 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 	if _, exist := acceptMap[msgContent.CreateTime]; exist {
 		log.Println("接收到重复的消息")
 	} else {
+		acceptMap[msgContent.CreateTime] = struct{}{}
 		// 读取当前的会话map
 		switch msgContent.MsgType {
 		/*
