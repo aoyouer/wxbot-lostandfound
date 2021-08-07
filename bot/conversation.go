@@ -40,6 +40,7 @@ func startConversation(ReceiveContent *conversation.MsgContent, imgContent *conv
 		Conversation:   conversationMap[ReceiveContent.FromUsername],
 	}
 	// 收到消息后马上进行回复,避免微信服务器多次推送,之后改用异步方法向企业微信发送消息
+	// TODO 有时候可能会丢包造成微信服务器没收到确认消息进而发生重传
 	replyTextWithCtx(ctx, "")
 
 	if c, exist := conversationMap[ReceiveContent.FromUsername]; exist {

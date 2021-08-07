@@ -31,15 +31,17 @@ type TokenResponse struct {
 type HandleFunc func(http.ResponseWriter, *http.Request)
 
 var (
-	botConfig                                                                  *BotConfig
-	wxcrypt                                                                    *wxbizmsgcrypt.WXBizMsgCrypt
+	botConfig *BotConfig
+	wxcrypt   *wxbizmsgcrypt.WXBizMsgCrypt
 	// 会话map,定时清理
 	conversationMap map[string]*conversation.Conversation
+	acceptMap       map[string]struct{}
 )
 
 func init() {
 	botConfig = new(BotConfig)
 	conversationMap = make(map[string]*conversation.Conversation)
+	acceptMap = make(map[string]struct{}) // 用于去除重复时间戳的消息
 }
 
 func GetBotConfig() *BotConfig {
@@ -100,44 +102,48 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 	msgContent := conversation.MsgContentPool.Get().(*conversation.MsgContent)
 	utils.CheckError(xml.Unmarshal(msg, &msgContent), "消息反序列化")
 	log.Println("读取到消息", msgContent)
-	// 读取当前的会话map
-	switch msgContent.MsgType {
-	/*
-		stage定义 用户在对话中可以查看当前表单状态，并切换对话阶段
-			0: 选择一步步对话的模式还是“智能”对话模式 选做
-			1: 收到任意消息后发现map中没有该用户的记录，询问用户是 捡到东西还是丢失了东西
-			1.1: 用户可以选择添加遗失、捡到东西的记录或者只是查看现在已有的记录 (比如丢失了东西，则查看现在已经被捡到的东西的记录
-			2: 询问用户捡到东西、丢失东西的地点
-			3: 询问捡到、丢失的东西是什么
-			4: 询问用户对物品的描述
-			5: 拼接前面所有的内容，分词器提取关键词，生成标签，询问用户补充标签
-			6: 询问用户上传图片
-			7: 针对捡到东西的用户，询问东西应该去哪里取回
+	if _, exist := acceptMap[timestamp]; exist {
+		log.Println("接收到重复的消息")
+	} else {
+		// 读取当前的会话map
+		switch msgContent.MsgType {
+		/*
+			stage定义 用户在对话中可以查看当前表单状态，并切换对话阶段
+				0: 选择一步步对话的模式还是“智能”对话模式 选做
+				1: 收到任意消息后发现map中没有该用户的记录，询问用户是 捡到东西还是丢失了东西
+				1.1: 用户可以选择添加遗失、捡到东西的记录或者只是查看现在已有的记录 (比如丢失了东西，则查看现在已经被捡到的东西的记录
+				2: 询问用户捡到东西、丢失东西的地点
+				3: 询问捡到、丢失的东西是什么
+				4: 询问用户对物品的描述
+				5: 拼接前面所有的内容，分词器提取关键词，生成标签，询问用户补充标签
+				6: 询问用户上传图片
+				7: 针对捡到东西的用户，询问东西应该去哪里取回
 
-			如果用户捡到了东西，并查看丢失物品列表(或者负责人进行更新), 如果捡到的东西和丢失列表匹配了则可选择告知登记丢失了物品的失主，
-			失主或者管理员可以标记丢失物品的记录为已完成，完成时会通知丢失物品的人 进行感谢
+				如果用户捡到了东西，并查看丢失物品列表(或者负责人进行更新), 如果捡到的东西和丢失列表匹配了则可选择告知登记丢失了物品的失主，
+				失主或者管理员可以标记丢失物品的记录为已完成，完成时会通知丢失物品的人 进行感谢
 
-			如果用户丢失了东西，也可以只是查看捡到的失物列表
+				如果用户丢失了东西，也可以只是查看捡到的失物列表
 
-			可选:
-			通过标签进行模糊查找
-			添加失物(丢失或捡到)后，根据标签列出当前记录的信息，让用户查看是否捡到的东西、丢失的东西已经有记录了
+				可选:
+				通过标签进行模糊查找
+				添加失物(丢失或捡到)后，根据标签列出当前记录的信息，让用户查看是否捡到的东西、丢失的东西已经有记录了
 
-			添加记录后(丢失或者捡到)向指定群聊推送消息
-			定时推送消息
-	*/
-	case "text":
-		err = startConversation(msgContent, nil, w, timestamp, nonce)
-		utils.CheckError(err, "被动回复消息")
-	case "image":
-		imgMsgContent := conversation.ImgMsgContentPool.Get().(*conversation.ImgContent)
-		_ = xml.Unmarshal(msg, imgMsgContent)
-		err = startConversation(msgContent, imgMsgContent, w, timestamp, nonce)
-		conversation.ImgMsgContentPool.Put(imgMsgContent)
-	default:
-		// 无法处理的消息
-		err = replyText(*msgContent, w, timestamp, nonce, "抱歉,机器人无法处理当前类型消息。")
-		utils.CheckError(err, "被动回复消息(消息无法处理)")
+				添加记录后(丢失或者捡到)向指定群聊推送消息
+				定时推送消息
+		*/
+		case "text":
+			err = startConversation(msgContent, nil, w, timestamp, nonce)
+			utils.CheckError(err, "被动回复消息")
+		case "image":
+			imgMsgContent := conversation.ImgMsgContentPool.Get().(*conversation.ImgContent)
+			_ = xml.Unmarshal(msg, imgMsgContent)
+			err = startConversation(msgContent, imgMsgContent, w, timestamp, nonce)
+			conversation.ImgMsgContentPool.Put(imgMsgContent)
+		default:
+			// 无法处理的消息
+			err = replyText(*msgContent, w, timestamp, nonce, "抱歉,机器人无法处理当前类型消息。")
+			utils.CheckError(err, "被动回复消息(消息无法处理)")
+		}
 	}
 	conversation.MsgContentPool.Put(msgContent)
 }
