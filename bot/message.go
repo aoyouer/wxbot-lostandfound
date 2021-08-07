@@ -31,7 +31,6 @@ func replyText(receiveContent conversation.MsgContent, w http.ResponseWriter, ti
 	return
 }
 
-
 // 被动回复消息
 func replyTextWithCtx(ctx conversation.ConversationContext, text string) (err error) {
 	replyTextMsg := conversation.ReplyTextMsgPool.Get().(*conversation.ReplyTextMsg)
@@ -50,9 +49,10 @@ func replyTextWithCtx(ctx conversation.ConversationContext, text string) (err er
 	_, err = ctx.W.Write(encryptMsg)
 	return
 }
+
 // 主动发送消息
-func sendTextWithCtx(ctx conversation.ConversationContext,text string) error{
-	return sendTextToUser(text,ctx.ReceiveContent.FromUsername)
+func sendTextWithCtx(ctx conversation.ConversationContext, text string) error {
+	return sendTextToUser(text, ctx.ReceiveContent.FromUsername)
 }
 
 //主动发送消息
@@ -92,6 +92,51 @@ func sendTextToUser(text string, userName string) error {
 			getAccessToken()
 		} else {
 			log.Println("成功发送主动消息。")
+			break
+		}
+	}
+	return err
+}
+
+// 主动发送markdown
+// TODO 使用type switch 和上一个方法进行合并 减少重复代码
+func sendMDtoUserWithCtx(ctx conversation.ConversationContext, md string) error {
+	initiativeMsgResponse := &conversation.InitiativeMsgResponse{}
+	markdownMsg := conversation.MarkDownMsg{
+		Touser:  ctx.ReceiveContent.FromUsername,
+		Msgtype: "markdown",
+		Agentid: botConfig.AgentId,
+		EnableDuplicateCheck:   0,
+		DuplicateCheckInterval: 0,
+	}
+	markdownMsg.Markdown.Content = md
+	client := &http.Client{}
+	jsonMsg, err := json.Marshal(markdownMsg)
+	if err != nil {
+		return err
+	}
+	// 最多重试3次
+	for i := 0; i < 3; i++ {
+		req, err := http.NewRequest("POST", "https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token="+botConfig.AccessToken, bytes.NewReader(jsonMsg))
+		if err != nil {
+			return err
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+		// 需要检查token是否有效，无效需要重新获取，重新发送
+		json.Unmarshal(body, initiativeMsgResponse)
+		log.Println(initiativeMsgResponse)
+		if initiativeMsgResponse.Errcode != 0 {
+			log.Println("主动发送Markdown消息出现错误", string(body))
+			getAccessToken()
+		} else {
+			log.Println("成功发送主动Markdown消息。")
 			break
 		}
 	}

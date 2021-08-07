@@ -62,11 +62,8 @@ func AddRecord(ctx conversation.ConversationContext) (err error) {
 	for _, tagName := range ctx.Conversation.Form.ItemTags {
 		tag := tagPool.Get().(*Tag)
 		tag.TagName = tagName
-		//tag := &Tag{
-		//	TagName: tagName,
-		//}
 		// 添加标签，如果存在就改为获取
-		err = db.First(tag).Error
+		err = db.Where(tag).First(tag).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			// 新增标签
 			db.Omit("Id").Create(tag)
@@ -95,3 +92,29 @@ func AddRecord(ctx conversation.ConversationContext) (err error) {
 	}
 	return
 }
+
+// 直接返回markdown列表
+func GetRecord(recordType int64, status string, tags []string) (records []ItemRecord) {
+	queryDB := db.Where(&ItemRecord{Type: recordType, Status: status})
+	if tags != nil {
+		for _, tag := range tags {
+			// 不考虑性能的实现...
+			log.Printf("模糊查找标签%s 类型:%d\n", tag, recordType)
+			queryDB = queryDB.Where("tags like ?", "%"+tag+"%")
+		}
+	}
+	if err := queryDB.Find(&records).Error; err != nil {
+		log.Println("查询记录出错", err.Error())
+	}
+	return
+}
+
+// TODO 给tag加一个TYPE字段
+func GetAllTag() (tags []Tag) {
+	if err := db.Find(&tags).Error; err != nil {
+		log.Println("查询记录出错", err.Error())
+	}
+	return
+}
+
+// 通过标签搜索markdown列表

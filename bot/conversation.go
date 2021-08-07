@@ -4,19 +4,21 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 	"wxbot-lostandfound/conversation"
 	"wxbot-lostandfound/dao"
+	"wxbot-lostandfound/handler"
 	"wxbot-lostandfound/utils"
 )
 
 var (
-	initPrompt               = "欢迎使用失物小助手，请问您遇到了什么问题呢?\n1.我丢失了物品\n2.我捡到了物品\n3.我是管理员!"
+	initPrompt               = "欢迎使用失物小助手，请问您遇到了什么问题呢?\n1.我丢失了物品\n2.我捡到了物品\n3.我是管理员!\n4.结束会话"
 	askLostItemPrompt        = "你丢失的东西是什么呢?"
 	askFoundItemPrompt       = "你捡到的东西是什么呢?"
-	askLostOperationPrompt   = "1.添加丢失物品的记录\n2.查看捡到的物品列表"
-	askFoundOperationPrompt  = "1.添加捡到物品的记录\n2.查看失物记录列表"
+	askLostOperationPrompt   = "1.添加丢失物品的记录\n2.查看捡到的物品列表\n3.返回上一步"
+	askFoundOperationPrompt  = "1.添加捡到物品的记录\n2.查看失物记录列表\n3.返回上一步"
 	askLostPlacePrompt       = "请问你在哪里(城市)丢失了物品呢?"
 	askFoundPlacePrompt      = "请问你在哪里(城市)捡到了物品呢?"
 	askLostDescriptionPrompt = "请对丢失的物品进行详细一些的描述(如颜色、品牌等)。"
@@ -55,8 +57,8 @@ func startConversation(ReceiveContent *conversation.MsgContent, imgContent *conv
 			// 添加记录的
 			if c.Operation == "add" {
 				err = stage2AddConversation(ctx)
-			} else {
-
+			} else if c.Operation == "list" {
+				stage2ListConversation(ctx)
 			}
 		case 3:
 			log.Println("阶段3")
@@ -112,6 +114,9 @@ func stage0Conversation(ctx conversation.ConversationContext) (err error) {
 	case "3", "我是管理员":
 		// TODO 允许企业中指定身份的人进行一些管理操作
 		ctx.Conversation.Type = 3
+	case "4", "结束会话":
+		err = sendTextWithCtx(ctx, "再见，当前会话已结束")
+		delete(conversationMap, ctx.ReceiveContent.FromUsername)
 	default:
 		// 无效输入
 		err = sendTextWithCtx(ctx, generalInvalidPrompt)
@@ -121,19 +126,21 @@ func stage0Conversation(ctx conversation.ConversationContext) (err error) {
 
 // 阶段1 设置操作 添加或者是查看
 func stage1Conversation(ctx conversation.ConversationContext) (err error) {
+	ctx.Conversation.Stage = 2
 	switch ctx.ReceiveContent.Content {
 	case "1", "添加丢失物品的记录", "添加捡到物品的记录":
 		ctx.Conversation.Operation = "add"
 		if ctx.Conversation.Type == 1 {
-			ctx.Conversation.Stage = 2
 			err = sendTextWithCtx(ctx, askLostPlacePrompt)
 		} else {
-			ctx.Conversation.Stage = 2
 			err = sendTextWithCtx(ctx, askFoundPlacePrompt)
 		}
 	case "2", "查看捡到的物品列表", "查看失物记录列表":
 		ctx.Conversation.Operation = "list"
-		// TODO 展示已经记录的列表
+		err = sendTextWithCtx(ctx, "1.查看所有记录\n2.查看未完成记录\n3.查看已完成记录\n4.根据描述搜索记录\n5.返回上一步")
+	case "3", "返回上一步":
+		ctx.Conversation.Stage = 0
+		err = sendTextWithCtx(ctx, initPrompt)
 	default:
 		err = sendTextWithCtx(ctx, generalInvalidPrompt)
 	}
@@ -178,6 +185,87 @@ func stage2AddConversation(ctx conversation.ConversationContext) (err error) {
 	}
 
 	return
+}
+
+// 阶段2 查看记录 以多个Markdown返回 暂时未做分页和时间等筛选
+func stage2ListConversation(ctx conversation.ConversationContext) {
+	var searchType int64
+	if ctx.Conversation.Type == 1 {
+		// 要进行相反的查找, 丢失东西应该查找的是捡到东西的记录
+		searchType = 2
+	} else if ctx.Conversation.Type == 2 {
+		searchType = 1
+	}
+	switch ctx.Conversation.Status {
+	case "":
+		ctx.Conversation.Status = "waitchoose"
+		var mds, tags []string
+		switch ctx.ReceiveContent.Content {
+		case "2", "查看未完成记录":
+			sendTextWithCtx(ctx, "正在进行查询")
+			mds = handler.GetRecordMarkdown(searchType, "未完成", nil)
+		case "3", "查看已完成记录":
+			sendTextWithCtx(ctx, "正在进行查询")
+			mds = handler.GetRecordMarkdown(searchType, "已完成", nil)
+		case "4", "根据标签搜索记录":
+			sendTextWithCtx(ctx, "正在进行查询")
+			tags = handler.GetAllTag()
+			if len(tags) == 0 {
+				sendTextWithCtx(ctx, "当前还没有任何标签")
+			}
+		case "1", "查看所有记录":
+			mds = handler.GetRecordMarkdown(searchType, "", nil)
+		case "5", "返回上一步":
+			fallthrough
+		default:
+			ctx.Conversation.Stage = 1
+			if ctx.Conversation.Type == 1 {
+				sendTextWithCtx(ctx, askLostOperationPrompt)
+			} else {
+				sendTextWithCtx(ctx, askFoundOperationPrompt)
+			}
+		}
+		// 返回多个markdown
+		if len(mds) > 0 {
+			sendTextWithCtx(ctx, "共找到"+strconv.Itoa(len(mds))+"条记录")
+			for _, md := range mds {
+				if err := sendMDtoUserWithCtx(ctx, md); err != nil {
+					log.Println("返回markdown出错", err.Error())
+				}
+			}
+			sendTextWithCtx(ctx, "1.返回上一步\n2.结束会话")
+		}
+		if len(tags) > 0 {
+			ctx.Conversation.Status = "waittags"
+			sendTextWithCtx(ctx, fmt.Sprintf("当前共有如下标签\n%s\n输入标签进行查询(多个标签用空格分隔)", strings.Join(tags, ",")))
+		}
+
+	case "waitchoose":
+		ctx.Conversation.Status = ""
+		switch ctx.ReceiveContent.Content {
+		case "1", "返回上一步":
+			ctx.Conversation.Stage = 2
+			sendTextWithCtx(ctx, "1.查看所有记录\n2.查看未完成记录\n3.查看已完成记录\n4.根据描述搜索记录\n5.返回上一步")
+		case "2", "结束会话":
+			sendTextWithCtx(ctx, "当前会话已结束")
+			delete(conversationMap, ctx.ReceiveContent.FromUsername)
+		}
+	case "waittags":
+		// 对输入的文本进行提取，提取出标签
+		ctx.Conversation.Status = "waitchoose"
+		content := ctx.ReceiveContent.Content
+		tags := strings.Fields(content)
+		mds := handler.GetRecordMarkdown(searchType, "", tags)
+		sendTextWithCtx(ctx, "共找到"+strconv.Itoa(len(mds))+"条记录")
+		if len(mds) > 0 {
+			for _, md := range mds {
+				if err := sendMDtoUserWithCtx(ctx, md); err != nil {
+					log.Println("返回markdown出错", err.Error())
+				}
+			}
+		}
+		sendTextWithCtx(ctx, "1.返回上一步\n2.结束会话")
+	}
 }
 
 // 阶段3 添加物品名称 需要进行确认
@@ -341,7 +429,8 @@ func askForConfirm(ctx conversation.ConversationContext) (err error) {
 		case "1", "yes":
 			// 提交至数据库
 			err = dao.AddRecord(ctx)
-			err = sendTextWithCtx(ctx, "已添加记录")
+			err = sendTextWithCtx(ctx, "已添加记录,当前会话已结束") //TODO 可扩展提交记录后进行查找
+			delete(conversationMap, ctx.ReceiveContent.FromUsername)
 		case "2", "no":
 			fallthrough
 		default:

@@ -81,18 +81,7 @@ type ReplyTextMsg struct {
 	Content      string `xml:"Content"`
 }
 
-type MarkDownMsg struct {
-	Touser   string `json:"touser"`
-	Toparty  string `json:"toparty"`
-	Totag    string `json:"totag"`
-	Msgtype  string `json:"msgtype"`
-	Agentid  int    `json:"agentid"`
-	Markdown struct {
-		Content string `json:"content"`
-	} `json:"markdown"`
-	EnableDuplicateCheck   int `json:"enable_duplicate_check"`
-	DuplicateCheckInterval int `json:"duplicate_check_interval"`
-}
+
 
 type NewsMsg struct {
 	Touser  string `json:"touser"`
@@ -112,6 +101,20 @@ type NewsMsg struct {
 	EnableDuplicateCheck   int `json:"enable_duplicate_check"`
 	DuplicateCheckInterval int `json:"duplicate_check_interval"`
 }
+
+type MarkDownMsg struct {
+	Touser   string `json:"touser"`
+	Toparty  string `json:"toparty"`
+	Totag    string `json:"totag"`
+	Msgtype  string `json:"msgtype"`
+	Agentid  int    `json:"agentid"`
+	Markdown struct {
+		Content string `json:"content"`
+	} `json:"markdown"`
+	EnableDuplicateCheck   int `json:"enable_duplicate_check"`
+	DuplicateCheckInterval int `json:"duplicate_check_interval"`
+}
+
 
 // 主动发送消息
 
